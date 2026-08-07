@@ -1,0 +1,8 @@
+CREATE TABLE inventory (
+    inventory_id INT AUTO_INCREMENT PRIMARY KEY,
+    product_id INT UNIQUE NOT NULL,
+    stock_quantity INT NOT NULL DEFAULT 0,
+    reorder_level INT NOT NULL DEFAULT 10,
+    last_restock_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
