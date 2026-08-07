@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  mysql_db:
+    image: mysql:8.0
+    container_name: hawwa_mysql_db
+    restart: always
+    environment:
+      MYSQL_DATABASE: hawwa_analytics_platform
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-rootpassword}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  analytics_api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: hawwa_analytics_api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=mysql_db
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD:-rootpassword}
+      - DB_NAME=hawwa_analytics_platform
+    depends_on:
+      - mysql_db
+
+volumes:
+  mysql_data:

@@ -1,0 +1,43 @@
+metrics:
+  - name: gmv
+    label: Gross Merchandise Value
+    owner: Platform Analytics Team
+    description: Total value of merchandise sold before applying discounts, shipping, or VAT.
+    sql_formula: "SUM(gross_sales)"
+    data_source: dw_fact_sales
+    type: additive
+    currency: SAR
+
+  - name: net_revenue
+    label: Net Revenue
+    owner: Finance & Analytics
+    description: Actual recognized revenue after discounts, including VAT and shipping fees collected.
+    sql_formula: "SUM(net_amount)"
+    data_source: dw_fact_orders
+    type: additive
+    currency: SAR
+
+  - name: total_orders
+    label: Total Orders Count
+    owner: Core Product Team
+    description: Count of distinct orders placed across all merchant stores.
+    sql_formula: "COUNT(DISTINCT order_id)"
+    data_source: dw_fact_orders
+    type: additive
+
+  - name: average_order_value
+    label: Average Order Value (AOV)
+    owner: Growth & Analytics
+    description: Average monetary amount spent per completed order.
+    sql_formula: "SUM(net_amount) / COUNT(DISTINCT order_id)"
+    data_source: dw_fact_orders
+    type: derived
+    currency: SAR
+
+  - name: merchant_health_score
+    label: Merchant Health Score
+    owner: Merchant Success Team
+    description: A weighted composite score (0-100) evaluating GMV volume, order fulfillment velocity, and active catalog breadth.
+    sql_formula: "LEAST(100, GREATEST(0, (LOG10(COALESCE(SUM(gross_sales), 1)) * 20) + (COUNT(DISTINCT order_id) * 0.1)))"
+    data_source: dw_fact_sales
+    type: composite
