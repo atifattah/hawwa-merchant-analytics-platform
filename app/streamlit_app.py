@@ -697,59 +697,127 @@ ORDER BY regional_gmv DESC;
         })
 
 # =========================================================
-# TAB 6: A/B TESTING & GENAI RECOMMENDATION SUITE
+# TAB 6: ADVANCED A/B TESTING & GENAI RECOMMENDATION SUITE
 # =========================================================
 elif active == "tab6":
-    st.subheader("🧪 GenAI & Recommendation A/B Experimentation Suite")
-    st.caption("Live experiment evaluation metrics comparing Variant A (Default Store Feed) vs. Variant B (GenAI Personalization Model).")
+    st.subheader("🧪 GenAI & Recommendation A/B Experimentation Engine")
+    st.caption("Statistical evaluation workspace tracking offline ranking metrics, sequential hypothesis testing, and conversion uplift.")
 
-    st.markdown("##### 🔍 Experiment Model Comparison Selector")
+    # 1. EXPERIMENT MODEL DATA DICTIONARY
+    models_data = {
+        "Variant B: GenAI Personalization Model": {
+            "sample_size": "150,000 Users",
+            "split": "50% / 50%",
+            "ndcg10": "0.892",
+            "ndcg_diff": "+14.5% vs Control",
+            "ctr": "8.42%",
+            "ctr_diff": "+2.10% Uplift",
+            "cvr_uplift": "+18.6%",
+            "p_value": "p = 0.0002",
+            "z_score": "3.72",
+            "ci_95": "[+14.2%, +23.0%]",
+            "srm_check": "PASSED (p = 0.48)",
+            "cvr_trend": [2.20, 2.28, 2.35, 2.41, 2.45, 2.48, 2.52, 2.55, 2.58, 2.62],
+            "metrics_table": {
+                "Metric Name": ["CTR (Click-Through Rate)", "CVR (Conversion Rate)", "NDCG@5 Ranking", "NDCG@10 Ranking", "Average Order Value (SAR)", "Bounce Rate"],
+                "Variant A (Control - Default Feed)": ["6.32%", "2.10%", "0.680", "0.779", "320.50 SAR", "42.1%"],
+                "Treatment Model": ["8.42%", "2.49%", "0.812", "0.892", "385.20 SAR", "31.8%"],
+                "Absolute Uplift": ["+2.10%", "+0.39%", "+0.132", "+0.113", "+64.70 SAR", "-10.3%"],
+                "Statistical Significance": ["p = 0.0002 ✅", "p = 0.0008 ✅", "p = 0.0001 ✅", "p = 0.0001 ✅", "p = 0.0012 ✅", "p = 0.0005 ✅"]
+            }
+        },
+        "Variant C: Neural Collaborative Filtering": {
+            "sample_size": "120,000 Users",
+            "split": "50% / 50%",
+            "ndcg10": "0.835",
+            "ndcg_diff": "+7.2% vs Control",
+            "ctr": "7.15%",
+            "ctr_diff": "+0.83% Uplift",
+            "cvr_uplift": "+11.4%",
+            "p_value": "p = 0.0041",
+            "z_score": "2.86",
+            "ci_95": "[+6.8%, +16.1%]",
+            "srm_check": "PASSED (p = 0.52)",
+            "cvr_trend": [2.15, 2.20, 2.26, 2.30, 2.34, 2.38, 2.41, 2.44, 2.46, 2.49],
+            "metrics_table": {
+                "Metric Name": ["CTR (Click-Through Rate)", "CVR (Conversion Rate)", "NDCG@5 Ranking", "NDCG@10 Ranking", "Average Order Value (SAR)", "Bounce Rate"],
+                "Variant A (Control - Default Feed)": ["6.32%", "2.10%", "0.680", "0.779", "320.50 SAR", "42.1%"],
+                "Treatment Model": ["7.15%", "2.34%", "0.745", "0.835", "352.10 SAR", "36.4%"],
+                "Absolute Uplift": ["+0.83%", "+0.24%", "+0.065", "+0.056", "+31.60 SAR", "-5.7%"],
+                "Statistical Significance": ["p = 0.0041 ✅", "p = 0.0032 ✅", "p = 0.0021 ✅", "p = 0.0018 ✅", "p = 0.0055 ✅", "p = 0.0082 ✅"]
+            }
+        },
+        "Variant D: Hybrid LLM RecEngine": {
+            "sample_size": "200,000 Users",
+            "split": "50% / 50%",
+            "ndcg10": "0.924",
+            "ndcg_diff": "+18.6% vs Control",
+            "ctr": "9.68%",
+            "ctr_diff": "+3.36% Uplift",
+            "cvr_uplift": "+26.2%",
+            "p_value": "p = 0.00001",
+            "z_score": "4.89",
+            "ci_95": "[+21.1%, +31.3%]",
+            "srm_check": "PASSED (p = 0.81)",
+            "cvr_trend": [2.25, 2.35, 2.44, 2.50, 2.56, 2.61, 2.67, 2.72, 2.78, 2.83],
+            "metrics_table": {
+                "Metric Name": ["CTR (Click-Through Rate)", "CVR (Conversion Rate)", "NDCG@5 Ranking", "NDCG@10 Ranking", "Average Order Value (SAR)", "Bounce Rate"],
+                "Variant A (Control - Default Feed)": ["6.32%", "2.10%", "0.680", "0.779", "320.50 SAR", "42.1%"],
+                "Treatment Model": ["9.68%", "2.65%", "0.865", "0.924", "410.80 SAR", "28.3%"],
+                "Absolute Uplift": ["+3.36%", "+0.55%", "+0.185", "+0.145", "+90.30 SAR", "-13.8%"],
+                "Statistical Significance": ["p = 0.00001 ✅", "p = 0.00001 ✅", "p = 0.00001 ✅", "p = 0.00001 ✅", "p = 0.00002 ✅", "p = 0.00001 ✅"]
+            }
+        }
+    }
+
+    # 2. SELECTION DROPDOWN
+    st.markdown("##### 🔍 Experiment Variant Comparison Selector")
     model_choice = st.selectbox(
         "Select Treatment Model Variant to Compare against Control (Variant A):",
-        ["Variant B: GenAI Personalization Model", "Variant C: Neural Collaborative Filtering", "Variant D: Hybrid LLM RecEngine"]
+        list(models_data.keys())
     )
 
+    selected_data = models_data[model_choice]
+
     st.markdown("---")
 
+    # 3. DYNAMIC METRIC CARDS (UPDATES INSTANTLY WITH SELECTION)
     ab1, ab2, ab3, ab4 = st.columns(4)
-    ab1.metric("Sample Size (Users)", "150,000 Users", "50 / 50 Split")
-    ab2.metric("NDCG@10 Ranking Score", "0.892 (Selected Model)", "+14.5% vs Control")
-    ab3.metric("Click-Through Rate (CTR)", "8.42%", "+2.1% Uplift")
-    ab4.metric("Conversion Rate (CVR) Uplift", "+18.6%", "p < 0.001 (Statistically Significant)")
+    ab1.metric("Sample Size (Users)", selected_data["sample_size"], f"Traffic Split: {selected_data['split']}")
+    ab2.metric("NDCG@10 Ranking Score", selected_data["ndcg10"], selected_data["ndcg_diff"])
+    ab3.metric("Click-Through Rate (CTR)", selected_data["ctr"], selected_data["ctr_diff"])
+    ab4.metric("Conversion Rate (CVR) Uplift", selected_data["cvr_uplift"], f"Sig: {selected_data['p_value']}")
 
     st.markdown("---")
 
-    # DUAL LINE CHART TREND COMPARISON
+    # 4. TECHNICAL STATISTICAL HYPOTHESIS TESTING PANEL
+    st.markdown("##### 🔬 Statistical Hypothesis & Validation Telemetry")
+    t1, t2, t3, t4 = st.columns(4)
+    t1.info(f"**Z-Score Test Statistic:**\n`Z = {selected_data['z_score']}`")
+    t2.info(f"**P-Value Significance:**\n`{selected_data['p_value']}` (α = 0.05)")
+    t3.info(f"**95% Confidence Interval:**\n`{selected_data['ci_95']}`")
+    t4.success(f"**Sample Ratio Mismatch (SRM):**\n`{selected_data['srm_check']}`")
+
+    st.markdown("---")
+
+    # 5. DUAL LINE CHART TREND COMPARISON
     st.markdown("##### 📈 Conversion Rate (CVR) Trajectory Over Time (Control vs Treatment)")
     days = pd.date_range(start="2026-08-01", periods=10)
-    
     control_cvr = [2.05, 2.08, 2.10, 2.09, 2.11, 2.08, 2.12, 2.10, 2.11, 2.13]
-    if "Variant B" in model_choice:
-        treatment_cvr = [2.20, 2.28, 2.35, 2.41, 2.45, 2.48, 2.52, 2.55, 2.58, 2.62]
-    elif "Variant C" in model_choice:
-        treatment_cvr = [2.15, 2.20, 2.26, 2.30, 2.34, 2.38, 2.41, 2.44, 2.46, 2.49]
-    else:
-        treatment_cvr = [2.25, 2.35, 2.44, 2.50, 2.56, 2.61, 2.67, 2.72, 2.78, 2.83]
 
     fig_dual = go.Figure()
     fig_dual.add_trace(go.Scatter(x=days, y=control_cvr, name="Variant A (Control - Default Feed)", line=dict(color="#888888", width=3, dash="dash")))
-    fig_dual.add_trace(go.Scatter(x=days, y=treatment_cvr, name=f"Treatment ({model_choice})", line=dict(color="#006C35", width=4)))
+    fig_dual.add_trace(go.Scatter(x=days, y=selected_data["cvr_trend"], name=f"Treatment ({model_choice})", line=dict(color="#006C35", width=4)))
     fig_dual.update_layout(
         template="plotly_dark" if is_dark else "plotly_white",
         yaxis_title="Conversion Rate (%)",
-        xaxis_title="Experiment Date",
+        xaxis_title="Experiment Observation Date",
         margin=dict(l=20, r=20, t=30, b=20)
     )
     st.plotly_chart(fig_dual, use_container_width=True)
 
-    st.markdown("##### 📊 Statistical Metric Significance Breakdown")
-    ab_summary = pd.DataFrame({
-        "Metric Name": ["CTR (Click-Through Rate)", "CVR (Conversion Rate)", "NDCG@5 Ranking", "NDCG@10 Ranking", "Average Order Value (SAR)", "Bounce Rate"],
-        "Variant A (Control - Default Feed)": ["6.32%", "2.10%", "0.680", "0.779", "320.50 SAR", "42.1%"],
-        "Selected Treatment Model": ["8.42%", "2.49%", "0.812", "0.892", "385.20 SAR", "31.8%"],
-        "Absolute Uplift": ["+2.10%", "+0.39%", "+0.132", "+0.113", "+64.70 SAR", "-10.3%"],
-        "Statistical Significance": ["p = 0.0002 ✅", "p = 0.0008 ✅", "p = 0.0001 ✅", "p = 0.0001 ✅", "p = 0.0012 ✅", "p = 0.0005 ✅"]
-    })
-    st.dataframe(ab_summary, use_container_width=True)
+    # 6. DYNAMIC DETAILED STATISTICAL TABLE
+    st.markdown("##### 📊 Statistical Metric Significance & Ranking Evaluation Ledger")
+    st.dataframe(pd.DataFrame(selected_data["metrics_table"]), use_container_width=True)
 
-    st.info("💡 **A/B Engine Insight:** The selected treatment model achieved statistically significant uplift across all KSA regions with zero latency regression on ClickHouse feature queries.")
+    st.info(f"💡 **A/B Engine Inference:** `{model_choice}` reached statistical significance ({selected_data['p_value']}) with zero latency degradation on ClickHouse feature queries.")
