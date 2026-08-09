@@ -248,7 +248,7 @@ st.caption(f"🔒 Session ID: `{st.session_state['user_id']}` | Status: `Terms A
 # ---------------------------------------------------------
 # STEP 3: FULL-WIDTH 6-BAR NAVIGATION
 # ---------------------------------------------------------
-col1, col2, col3, col4, col5, col6 = st.columns(6, gap="small")
+col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 1], gap="small")
 
 tabs = {
     "tab1": "📊 Executive KPIs",
@@ -260,32 +260,56 @@ tabs = {
 }
 
 with col1:
-    if st.button(tabs["tab1"], type="primary" if st.session_state["active_tab"] == "tab1" else "secondary"):
+    if st.button(
+        tabs["tab1"],
+        type="primary" if st.session_state["active_tab"] == "tab1" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state["active_tab"] = "tab1"
         st.rerun()
 
 with col2:
-    if st.button(tabs["tab2"], type="primary" if st.session_state["active_tab"] == "tab2" else "secondary"):
+    if st.button(
+        tabs["tab2"],
+        type="primary" if st.session_state["active_tab"] == "tab2" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state["active_tab"] = "tab2"
         st.rerun()
 
 with col3:
-    if st.button(tabs["tab3"], type="primary" if st.session_state["active_tab"] == "tab3" else "secondary"):
+    if st.button(
+        tabs["tab3"],
+        type="primary" if st.session_state["active_tab"] == "tab3" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state["active_tab"] = "tab3"
         st.rerun()
 
 with col4:
-    if st.button(tabs["tab4"], type="primary" if st.session_state["active_tab"] == "tab4" else "secondary"):
+    if st.button(
+        tabs["tab4"],
+        type="primary" if st.session_state["active_tab"] == "tab4" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state["active_tab"] = "tab4"
         st.rerun()
 
 with col5:
-    if st.button(tabs["tab5"], type="primary" if st.session_state["active_tab"] == "tab5" else "secondary"):
+    if st.button(
+        tabs["tab5"],
+        type="primary" if st.session_state["active_tab"] == "tab5" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state["active_tab"] = "tab5"
         st.rerun()
 
 with col6:
-    if st.button(tabs["tab6"], type="primary" if st.session_state["active_tab"] == "tab6" else "secondary"):
+    if st.button(
+        tabs["tab6"],
+        type="primary" if st.session_state["active_tab"] == "tab6" else "secondary",
+        use_container_width=True,
+    ):
         st.session_state["active_tab"] = "tab6"
         st.rerun()
 
