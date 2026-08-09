@@ -214,13 +214,13 @@ if st.session_state["consent_status"] == "REJECTED":
     st.stop()
 
 # ---------------------------------------------------------
-# STEP 2: HEADER WITH LIGHT / DARK MODE TOGGLE
+# STEP 2: HEADER & EXTREME TOP-RIGHT THEME TOGGLE
 # ---------------------------------------------------------
-col_header, col_theme = st.columns([8, 2])
+col_header, col_theme = st.columns([12, 1.2])
 
 with col_header:
     st.markdown("""
-    <div style='padding-top: 5px;'>
+    <div style='padding-top: 0px;'>
         <span class='floating-arabic'>المملكة العربية السعودية | Salla Partner Ecosystem</span>
         <h2 style='margin: 0; padding: 0;'>Hawwa (حواء) - Merchant Analytics Platform</h2>
         <p style='margin: 0; opacity: 0.8; font-size: 0.95rem;'>Enterprise E-Commerce Intelligence & Semantic Analytics Engine</p>
@@ -228,13 +228,16 @@ with col_header:
     """, unsafe_allow_html=True)
 
 with col_theme:
+    st.markdown("<div style='text-align: right;'>", unsafe_allow_html=True)
     selected_theme = st.radio(
         "Theme",
         options=["☀️ Light", "🌙 Dark"],
         index=0 if st.session_state["theme"] == "Light" else 1,
-        horizontal=True,
+        horizontal=False,
         key="theme_toggle"
     )
+    st.markdown("</div>", unsafe_allow_html=True)
+    
     new_theme = "Light" if "Light" in selected_theme else "Dark"
     if new_theme != st.session_state["theme"]:
         st.session_state["theme"] = new_theme
