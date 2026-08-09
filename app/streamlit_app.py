@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import uuid
 import datetime
 import urllib.request
@@ -30,8 +31,16 @@ if "user_id" not in st.session_state:
     st.session_state["user_id"] = f"HW-{uuid.uuid4().hex[:8].upper()}"
 if "consent_status" not in st.session_state:
     st.session_state["consent_status"] = None
+if "consent_name" not in st.session_state:
+    st.session_state["consent_name"] = ""
+if "consent_email" not in st.session_state:
+    st.session_state["consent_email"] = ""
+if "consent_country" not in st.session_state:
+    st.session_state["consent_country"] = ""
+if "consent_language" not in st.session_state:
+    st.session_state["consent_language"] = "en"
 if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = "tab1"
+    st.session_state["active_tab"] = "home"
 if "theme" not in st.session_state:
     st.session_state["theme"] = "Light"
 if "base_order_count" not in st.session_state:
@@ -149,25 +158,172 @@ def get_db_engine():
     DB_NAME = os.getenv("DB_NAME", "hawwa_analytics_platform")
     return create_engine(f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
-def log_audit_consent(status: str):
-    user_id = st.session_state.get("user_id", f"HW-{uuid.uuid4().hex[:8].upper()}")
+def ensure_audit_table_schema():
+    DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+    DB_PORT = int(os.getenv("DB_PORT", "3306"))
+    DB_USER = os.getenv("DB_USER", "root")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    DB_NAME = os.getenv("DB_NAME", "hawwa_analytics_platform")
+
+    try:
+        conn = pymysql.connect(
+            host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, autocommit=True
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_audit_access_logs (
+                    log_id INT NOT NULL AUTO_INCREMENT,
+                    user_id VARCHAR(64) NOT NULL,
+                    consent_status ENUM('ACCEPTED','REJECTED') NOT NULL,
+                    device_info VARCHAR(255) DEFAULT NULL,
+                    ip_address VARCHAR(45) DEFAULT NULL,
+                    login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    full_name VARCHAR(255) DEFAULT NULL,
+                    email VARCHAR(255) DEFAULT NULL,
+                    country VARCHAR(100) DEFAULT NULL,
+                    city VARCHAR(100) DEFAULT NULL,
+                    region VARCHAR(100) DEFAULT NULL,
+                    timezone VARCHAR(100) DEFAULT NULL,
+                    preferred_language VARCHAR(50) DEFAULT NULL,
+                    consent_notes TEXT DEFAULT NULL,
+                    PRIMARY KEY (log_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cursor.execute("SHOW COLUMNS FROM app_audit_access_logs")
+            existing_columns = {row[0] for row in cursor.fetchall()}
+
+            for column_name, definition in [
+                ("full_name", "VARCHAR(255) DEFAULT NULL"),
+                ("email", "VARCHAR(255) DEFAULT NULL"),
+                ("country", "VARCHAR(100) DEFAULT NULL"),
+                ("city", "VARCHAR(100) DEFAULT NULL"),
+                ("region", "VARCHAR(100) DEFAULT NULL"),
+                ("timezone", "VARCHAR(100) DEFAULT NULL"),
+                ("preferred_language", "VARCHAR(50) DEFAULT NULL"),
+                ("consent_notes", "TEXT DEFAULT NULL"),
+            ]:
+                if column_name not in existing_columns:
+                    cursor.execute(f"ALTER TABLE app_audit_access_logs ADD COLUMN {column_name} {definition}")
+        conn.close()
+    except Exception as exc:
+        st.warning(f"Audit schema update failed: {exc}")
+
+
+def get_client_context():
     headers = getattr(st, "context", {}).headers if hasattr(st, "context") else {}
     user_agent = headers.get("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Desktop")
-    client_ip = headers.get("X-Forwarded-For", "127.0.0.1")
+    client_ip = (
+        headers.get("CF-Connecting-IP")
+        or headers.get("True-Client-IP")
+        or headers.get("X-Forwarded-For")
+        or headers.get("X-Real-IP")
+        or "127.0.0.1"
+    )
+
+    if isinstance(client_ip, list):
+        client_ip = client_ip[0]
+    if isinstance(client_ip, str) and "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+
+    preferred_language = headers.get("Accept-Language", "en-US")
+    preferred_language = "ar" if "ar" in preferred_language.lower() else "en"
+
+    full_name = str(st.session_state.get("consent_name", "")).strip() or "Guest"
+    email = str(st.session_state.get("consent_email", "")).strip() or ""
+    country = str(st.session_state.get("consent_country", "")).strip() or ""
+    city = region = timezone = "Unknown"
+
+    def lookup_geo(ip_value: str):
+        nonlocal country, city, region, timezone
+        if not ip_value or ip_value in {"127.0.0.1", "0.0.0.0", "::1"}:
+            return
+        endpoints = [
+            f"http://ip-api.com/json/{ip_value}",
+            f"https://ipapi.co/{ip_value}/json/",
+        ]
+        for endpoint in endpoints:
+            try:
+                req = urllib.request.Request(endpoint, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    payload = json.load(response)
+                if isinstance(payload, dict):
+                    if payload.get("status") == "success" or payload.get("country_name") or payload.get("country"):
+                        country = payload.get("country", payload.get("country_name", "Unknown"))
+                        city = payload.get("city", "Unknown")
+                        region = payload.get("regionName", payload.get("region", "Unknown"))
+                        timezone = payload.get("timezone", "Unknown")
+                        return
+            except Exception:
+                continue
+
+    try:
+        ip_value = str(client_ip).strip()
+        if ip_value and ip_value in {"127.0.0.1", "0.0.0.0", "::1"}:
+            try:
+                with urllib.request.urlopen("https://api.ipify.org?format=json", timeout=3) as response:
+                    payload = json.load(response)
+                    ip_value = payload.get("ip", "")
+            except Exception:
+                ip_value = ""
+        lookup_geo(ip_value)
+    except Exception:
+        pass
+
+    if not country:
+        country = "Unknown"
+
+    return {
+        "user_agent": str(user_agent)[:240],
+        "client_ip": str(client_ip)[:40],
+        "full_name": str(full_name)[:255],
+        "email": str(email)[:255],
+        "country": str(country)[:100],
+        "city": str(city)[:100],
+        "region": str(region)[:100],
+        "timezone": str(timezone)[:100],
+        "preferred_language": str(preferred_language)[:50],
+    }
+
+
+def log_audit_consent(status: str):
+    user_id = st.session_state.get("user_id", f"HW-{uuid.uuid4().hex[:8].upper()}")
+    context_data = get_client_context()
 
     DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
     DB_PORT = int(os.getenv("DB_PORT", "3306"))
     DB_USER = os.getenv("DB_USER", "root")
     DB_PASSWORD = os.getenv("DB_PASSWORD", "")
     DB_NAME = os.getenv("DB_NAME", "hawwa_analytics_platform")
-    
+
     try:
+        ensure_audit_table_schema()
         conn = pymysql.connect(
             host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, autocommit=True
         )
         with conn.cursor() as cursor:
-            sql = "INSERT INTO app_audit_access_logs (user_id, consent_status, device_info, ip_address) VALUES (%s, %s, %s, %s)"
-            cursor.execute(sql, (user_id, status, str(user_agent)[:240], str(client_ip)[:40]))
+            sql = """
+                INSERT INTO app_audit_access_logs (
+                    user_id, consent_status, device_info, ip_address, full_name, email, country, city, region,
+                    timezone, preferred_language, consent_notes
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(
+                sql,
+                (
+                    user_id,
+                    status,
+                    context_data["user_agent"],
+                    context_data["client_ip"],
+                    context_data["full_name"],
+                    context_data["email"],
+                    context_data["country"],
+                    context_data["city"],
+                    context_data["region"],
+                    context_data["timezone"],
+                    context_data["preferred_language"],
+                    f"Consent {status.lower()} via Hawwa app",
+                ),
+            )
         conn.close()
         st.toast(f"✅ Audit Log Recorded in MySQL for {user_id}!", icon="💾")
     except Exception:
@@ -186,18 +342,45 @@ if st.session_state["consent_status"] is None:
     """, unsafe_allow_html=True)
 
     st.warning("""
-    **Security & Data Privacy Audit Disclaimer:**
-    
-    Before entering the platform, please confirm acceptance of terms. Hawwa automatically logs 
-    session metadata (User ID, Device/Browser fingerprint, and IP context) into a secure audit ledger 
-    for compliance tracking.
+    **Security & Data Privacy Audit Disclaimer / إخلاء مسؤولية الأمان والخصوصية:**
+
+    Before entering the platform, please confirm acceptance of terms. Hawwa automatically logs session metadata
+    (User ID, name if provided, device/browser fingerprint, country/city context, and IP context) into a secure
+    audit ledger for compliance tracking.
+
+    قبل الدخول إلى المنصة، يرجى تأكيد قبول الشروط. تقوم حواء تلقائيًا بتسجيل بيانات الجلسة
+    (معرّف المستخدم، والاسم إذا تم إدخاله، وبصمة الجهاز/المتصفح، ومعلومات الدولة/المدينة، وسياق IP)
+    في سجل تدقيق آمن للامتثال.
     """)
+
+    st.text_input(
+        "👤 Your name / اسمك",
+        key="consent_name",
+        placeholder="Enter your name / أدخل اسمك"
+    )
+    st.text_input(
+        "📧 Email address / عنوان البريد الإلكتروني",
+        key="consent_email",
+        placeholder="you@example.com / your@email.com"
+    )
+    st.selectbox(
+        "🌍 Country / البلد",
+        options=["", "Saudi Arabia", "United Arab Emirates", "Bahrain", "Kuwait", "Qatar", "Oman", "Jordan", "Egypt", "Other"],
+        key="consent_country"
+    )
+    st.caption("Name, email, and country are stored in the audit log for traceability and follow-up / سيتم تخزين الاسم والبريد الإلكتروني والبلد في سجل التدقيق للتتبع والمتابعة")
 
     col_acc, col_rej = st.columns([1, 1])
     with col_acc:
         if st.button("✅ Accept Terms & Access Hawwa Suite", type="primary"):
+            email_value = str(st.session_state.get("consent_email", "")).strip()
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email_value):
+                st.error("Please enter a valid email address / يرجى إدخال بريد إلكتروني صحيح")
+                st.stop()
+            st.session_state["consent_language"] = "en"
             log_audit_consent("ACCEPTED")
             st.session_state["consent_status"] = "ACCEPTED"
+            st.session_state["active_tab"] = "home"
             st.rerun()
 
     with col_rej:
@@ -209,8 +392,12 @@ if st.session_state["consent_status"] is None:
     st.stop()
 
 if st.session_state["consent_status"] == "REJECTED":
-    st.error("🚫 Access Denied: Terms were declined.")
-    st.info(f"Audit log stored for User ID: `{st.session_state['user_id']}`. Refresh the page to reset.")
+    st.error("🚫 Access denied / تم رفض الوصول: Terms were declined / تم رفض الشروط.")
+    st.info("""
+    Your response has been recorded in the backend audit ledger and no further platform access will be granted.
+    تم تسجيل ردك في سجل التدقيق الخلفي ولن يتم منح أي وصول إضافي إلى المنصة.
+    """)
+    st.caption(f"Audit reference / مرجع التدقيق: `{st.session_state['user_id']}`")
     st.stop()
 
 # ---------------------------------------------------------
@@ -246,11 +433,12 @@ with col_theme:
 st.caption(f"🔒 Session ID: `{st.session_state['user_id']}` | Status: `Terms Accepted & Audited` ✅")
 
 # ---------------------------------------------------------
-# STEP 3: FULL-WIDTH 6-BAR NAVIGATION
+# STEP 3: FULL-WIDTH 7-BAR NAVIGATION WITH HOME
 # ---------------------------------------------------------
-col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 1], gap="small")
+col1, col2, col3, col4, col5, col6, col7 = st.columns([1, 1, 1, 1, 1, 1, 1], gap="small")
 
 tabs = {
+    "home": "🏠 Home",
     "tab1": "📊 Executive KPIs",
     "tab2": "💳 Payment Matrix",
     "tab3": "🏥 Merchant Health",
@@ -261,6 +449,15 @@ tabs = {
 
 with col1:
     if st.button(
+        tabs["home"],
+        type="primary" if st.session_state["active_tab"] == "home" else "secondary",
+        use_container_width=True,
+    ):
+        st.session_state["active_tab"] = "home"
+        st.rerun()
+
+with col2:
+    if st.button(
         tabs["tab1"],
         type="primary" if st.session_state["active_tab"] == "tab1" else "secondary",
         use_container_width=True,
@@ -268,7 +465,7 @@ with col1:
         st.session_state["active_tab"] = "tab1"
         st.rerun()
 
-with col2:
+with col3:
     if st.button(
         tabs["tab2"],
         type="primary" if st.session_state["active_tab"] == "tab2" else "secondary",
@@ -277,7 +474,7 @@ with col2:
         st.session_state["active_tab"] = "tab2"
         st.rerun()
 
-with col3:
+with col4:
     if st.button(
         tabs["tab3"],
         type="primary" if st.session_state["active_tab"] == "tab3" else "secondary",
@@ -286,7 +483,7 @@ with col3:
         st.session_state["active_tab"] = "tab3"
         st.rerun()
 
-with col4:
+with col5:
     if st.button(
         tabs["tab4"],
         type="primary" if st.session_state["active_tab"] == "tab4" else "secondary",
@@ -295,7 +492,7 @@ with col4:
         st.session_state["active_tab"] = "tab4"
         st.rerun()
 
-with col5:
+with col6:
     if st.button(
         tabs["tab5"],
         type="primary" if st.session_state["active_tab"] == "tab5" else "secondary",
@@ -304,7 +501,7 @@ with col5:
         st.session_state["active_tab"] = "tab5"
         st.rerun()
 
-with col6:
+with col7:
     if st.button(
         tabs["tab6"],
         type="primary" if st.session_state["active_tab"] == "tab6" else "secondary",
@@ -369,6 +566,72 @@ df_raw = load_fact_data()
 # STEP 5: PAGE CONTENT ROUTER
 # ---------------------------------------------------------
 active = st.session_state["active_tab"]
+
+# =========================================================
+# HOME PAGE
+# =========================================================
+if active == "home":
+    st.markdown("""
+    <div class='hero-card'>
+        <div class='floating-arabic'>منصة حواء للتحليلات التجارية | Hawwa Merchant Intelligence Platform</div>
+        <h2>🏠 Welcome Home / مرحبا بك في الصفحة الرئيسية</h2>
+        <p>This is a portfolio-style Merchant Analytics Platform designed to showcase how modern merchant intelligence can be
+        built for an e-commerce ecosystem similar to Salla. It brings together live operational data, payment insights,
+        merchant health signals, and audit visibility in one place.</p>
+        <p>هذه منصة تحليلية تجارية ذات طابع عرض مهني تُظهر كيف يمكن بناء ذكاء تجاري متقدم لمنصة تجارة إلكترونية
+        مشابهة لسلة. وهي تجمع بين البيانات التشغيلية الفعلية، ورؤى الدفع، وإشارات صحة المتاجر، ووضوح التدقيق في مكان واحد.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    hm1, hm2, hm3, hm4 = st.columns(4)
+    hm1.metric("Live Merchants", "1,248", "+12.4% QoQ")
+    hm2.metric("Live Orders", f"{dynamic_order_count:,}", "+8.1% vs last week")
+    hm3.metric("Active Regions", "7", "Saudi ecosystem")
+    hm4.metric("Compliance Score", "99.2%", "Audit-ready")
+
+    st.markdown("---")
+
+    home_left, home_right = st.columns([7, 3])
+    with home_left:
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+        gmv_series = [120, 132, 145, 158, 171, 189]
+        fig_home_trend = go.Figure()
+        fig_home_trend.add_trace(go.Scatter(x=months, y=gmv_series, mode="lines+markers", name="GMV (SAR M)", line=dict(color="#0A5C53", width=3), marker=dict(size=8)))
+        fig_home_trend.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=320, xaxis_title="Month", yaxis_title="GMV (SAR M)")
+        st.plotly_chart(fig_home_trend, use_container_width=True)
+
+    with home_right:
+        payment_mix = ["Mada", "STC Pay", "Apple Pay", "Tabby", "Tamara"]
+        mix_values = [38, 22, 15, 15, 10]
+        fig_home_mix = px.pie(names=payment_mix, values=mix_values, hole=0.45, color_discrete_sequence=px.colors.sequential.Greens_r)
+        fig_home_mix.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=320)
+        st.plotly_chart(fig_home_mix, use_container_width=True)
+
+    st.markdown("---")
+
+    st.subheader("What this app is / ما هذه المنصة")
+    st.markdown("""
+    - English: This project is a portfolio-style analytics experience built to demonstrate how a merchant intelligence platform
+      could look and function for a large e-commerce ecosystem, with a focus on decision support and business visibility.
+    - العربية: هذا المشروع هو تجربة تحليلات ذات طابع عرض مهني تُظهر كيف يمكن أن تبدو منصة ذكاء تجاري وتعمل
+      في منظومة تجارة إلكترونية كبيرة، مع التركيز على دعم القرار والوضوح التجاري.
+    """)
+
+    st.subheader("Why it was created / لماذا أُنشئت")
+    st.markdown("""
+    - English: It was created as a professional showcase of my ability to design end-to-end analytics solutions, data
+      storytelling, and product-style dashboards that can support growth, operations, and executive planning.
+    - العربية: أُنشئت كعرض مهني لقدرتي على تصميم حلول تحليلات متكاملة، وسرد بيانات، ولوحات معلومات على طراز المنتج
+      التي يمكنها دعم النمو والعمليات والتخطيط التنفيذي.
+    """)
+
+    st.subheader("What you can explore / ما الذي يمكنك استكشافه")
+    st.markdown("""
+    - English: Executive KPIs, payment matrix analysis, merchant health scoring, audit monitoring, data quality checks,
+      and recommendation intelligence designed to feel like a modern analytics product experience.
+    - العربية: مؤشرات الأداء التنفيذية، وتحليل مصفوفة الدفع، وتقييم صحة المتاجر، ومراقبة التدقيق، وفحوصات جودة البيانات،
+      وذكاء التوصيات مصمم ليبدو كمنصة تحليلات حديثة.
+    """)
 
 # =========================================================
 # TAB 1: EXECUTIVE KPIs
@@ -461,6 +724,15 @@ if active == "tab1":
         fig_pay = px.pie(pay_df, names="payment_method", values="order_id", hole=0.4, color_discrete_sequence=px.colors.sequential.Greens_r)
         fig_pay.update_layout(template="plotly_dark" if is_dark else "plotly_white")
         st.plotly_chart(fig_pay, use_container_width=True)
+
+    st.markdown("---")
+
+    st.markdown("##### 📈 Monthly GMV Trend")
+    monthly_df = df_filtered.set_index("order_timestamp").resample("ME").agg({"order_amount_sar": "sum", "vat_amount_sar": "sum"}).reset_index()
+    monthly_df.columns = ["Month", "GMV (SAR)", "VAT (SAR)"]
+    fig_trend = px.line(monthly_df, x="Month", y="GMV (SAR)", markers=True, color_discrete_sequence=["#0A5C53"])
+    fig_trend.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=320)
+    st.plotly_chart(fig_trend, use_container_width=True)
 
     st.markdown("---")
 
@@ -573,6 +845,15 @@ elif active == "tab2":
         fig_aov.update_layout(template="plotly_dark" if is_dark else "plotly_white", showlegend=False)
         st.plotly_chart(fig_aov, use_container_width=True)
 
+    st.markdown("---")
+    st.markdown("##### 📊 Gateway Performance Scatter")
+    gateway_scatter = df_pay_filtered.groupby("payment_method").agg({"order_amount_sar": "sum", "order_id": "count"}).reset_index()
+    gateway_scatter.columns = ["Payment Gateway", "Volume (SAR)", "Transactions"]
+    gateway_scatter["Avg Order Value (SAR)"] = gateway_scatter["Volume (SAR)"] / gateway_scatter["Transactions"]
+    fig_scatter = px.scatter(gateway_scatter, x="Transactions", y="Avg Order Value (SAR)", size="Volume (SAR)", color="Payment Gateway", hover_name="Payment Gateway")
+    fig_scatter.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=340)
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
 # =========================================================
 # TAB 3: MERCHANT HEALTH & ML CHURN
 # =========================================================
@@ -610,6 +891,19 @@ elif active == "tab3":
     ml_df = ml_df[ml_df["Health Score (0-100)"] >= min_health]
 
     st.markdown("##### 🤖 Real-Time Machine Learning Churn Risk Matrix")
+    risk_summary = ml_df["Risk Status"].value_counts().reset_index()
+    risk_summary.columns = ["Risk Status", "Merchants"]
+    fig_risk = px.bar(risk_summary, x="Risk Status", y="Merchants", color="Risk Status", color_discrete_map={"🔴 High Churn Risk": "#d32f2f", "🟡 Moderate Risk": "#fbc02d", "🟢 Healthy": "#2e7d32"})
+    fig_risk.update_layout(template="plotly_dark" if is_dark else "plotly_white", showlegend=False, margin=dict(l=10, r=10, t=10, b=10), height=300)
+    st.plotly_chart(fig_risk, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("##### 🎯 Health Score vs Churn Probability")
+    bubble_size = (ml_df["GMV Trajectory"].abs() * 40) + 10
+    fig_bubble = px.scatter(ml_df, x="Health Score (0-100)", y="ML Churn Probability", size=bubble_size, color="Risk Status", hover_name="Merchant Store Name")
+    fig_bubble.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=360)
+    st.plotly_chart(fig_bubble, use_container_width=True)
+
     st.dataframe(
         ml_df.style.format({
             "GMV Trajectory": "{:+.1%}",
@@ -646,6 +940,18 @@ elif active == "tab4":
         df_audit = df_audit[df_audit["merchant_region"] == sel_zatca_region]
 
     st.markdown("##### 📑 ZATCA E-Invoicing Real-Time Audit Ledger")
+    audit_status_counts = df_audit["Audit_Status"].value_counts().reset_index()
+    audit_status_counts.columns = ["Audit_Status", "Count"]
+    fig_audit = px.bar(audit_status_counts, x="Audit_Status", y="Count", color="Audit_Status", color_discrete_map={"✅ Compliant": "#2e7d32", "⚠️ Flagged Variance": "#d32f2f"})
+    fig_audit.update_layout(template="plotly_dark" if is_dark else "plotly_white", showlegend=False, margin=dict(l=10, r=10, t=10, b=10), height=280)
+    st.plotly_chart(fig_audit, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("##### 📉 VAT Variance Distribution")
+    fig_variance = px.histogram(df_audit, x="VAT_Variance", color_discrete_sequence=["#0A5C53"])
+    fig_variance.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=320)
+    st.plotly_chart(fig_variance, use_container_width=True)
+
     st.dataframe(
         df_audit[["order_id", "merchant_name", "merchant_region", "order_timestamp", "order_amount_sar", "vat_amount_sar", "Expected_VAT_15%", "Audit_Status"]]
         .rename(columns={
@@ -698,6 +1004,15 @@ elif active == "tab5":
     st.markdown("---")
     
     st.markdown("##### ⚡ ClickHouse Sub-Second Query Benchmark")
+    quality_scores = pd.DataFrame({
+        "Pipeline": ["Orders Ingestion", "Payments Sync", "Merchant Health", "VAT Audit", "Feature Store"],
+        "Quality Score": [98.4, 96.7, 95.2, 99.1, 97.6]
+    })
+    fig_quality = px.bar(quality_scores, x="Pipeline", y="Quality Score", color="Pipeline")
+    fig_quality.update_layout(template="plotly_dark" if is_dark else "plotly_white", showlegend=False, margin=dict(l=10, r=10, t=10, b=10), height=320)
+    st.plotly_chart(fig_quality, use_container_width=True)
+
+    st.markdown("---")
     col_term1, col_term2 = st.columns([6, 4])
     
     with col_term1:
@@ -842,6 +1157,16 @@ elif active == "tab6":
         margin=dict(l=20, r=20, t=30, b=20)
     )
     st.plotly_chart(fig_dual, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("##### 📊 Model Uplift Comparison")
+    uplift_df = pd.DataFrame({
+        "Metric": ["CTR", "CVR", "AOV", "Bounce Rate"],
+        "Lift": [3.36, 0.55, 90.3, -13.8]
+    })
+    fig_uplift = px.bar(uplift_df, x="Metric", y="Lift", color="Metric", text="Lift")
+    fig_uplift.update_layout(template="plotly_dark" if is_dark else "plotly_white", margin=dict(l=10, r=10, t=10, b=10), height=320)
+    st.plotly_chart(fig_uplift, use_container_width=True)
 
     # 6. DYNAMIC DETAILED STATISTICAL TABLE
     st.markdown("##### 📊 Statistical Metric Significance & Ranking Evaluation Ledger")
