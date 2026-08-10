@@ -152,8 +152,12 @@ st.markdown(f"""
 # DATABASE ENGINE & AUDIT LOGGER
 # ---------------------------------------------------------
 def _read_setting(names, default="", cast=None):
+    secrets = None
     try:
-        secrets = st.secrets
+        if hasattr(st, "secrets"):
+            secrets = st.secrets
+            if hasattr(secrets, "__len__"):
+                len(secrets)
     except Exception:
         secrets = None
 
