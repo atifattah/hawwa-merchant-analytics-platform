@@ -152,11 +152,6 @@ st.markdown(f"""
 # DATABASE ENGINE & AUDIT LOGGER
 # ---------------------------------------------------------
 def _read_setting(names, default="", cast=None):
-    for name in names:
-        value = os.getenv(name)
-        if value is not None and str(value).strip():
-            return cast(value) if cast else str(value)
-
     try:
         secrets = st.secrets
     except Exception:
@@ -176,6 +171,11 @@ def _read_setting(names, default="", cast=None):
             for name in names:
                 if name in mysql_config and str(mysql_config[name]).strip():
                     return cast(mysql_config[name]) if cast else str(mysql_config[name])
+
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and str(value).strip():
+            return cast(value) if cast else str(value)
 
     return default
 
