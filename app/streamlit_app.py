@@ -14,7 +14,8 @@ import streamlit as st
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-load_dotenv()
+ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(ENV_PATH)
 
 # Set Page Config
 st.set_page_config(
@@ -298,36 +299,52 @@ def log_audit_consent(status: str):
     try:
         ensure_audit_table_schema()
         conn = pymysql.connect(
-            host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, autocommit=True
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            autocommit=True,
+            connect_timeout=10,
         )
         with conn.cursor() as cursor:
-            sql = """
-                INSERT INTO app_audit_access_logs (
-                    user_id, consent_status, device_info, ip_address, full_name, email, country, city, region,
-                    timezone, preferred_language, consent_notes
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(
-                sql,
-                (
-                    user_id,
-                    status,
-                    context_data["user_agent"],
-                    context_data["client_ip"],
-                    context_data["full_name"],
-                    context_data["email"],
-                    context_data["country"],
-                    context_data["city"],
-                    context_data["region"],
-                    context_data["timezone"],
-                    context_data["preferred_language"],
-                    f"Consent {status.lower()} via Hawwa app",
-                ),
-            )
+            cursor.execute("SHOW COLUMNS FROM app_audit_access_logs")
+            columns = {row[0] for row in cursor.fetchall()}
+            insert_columns = [
+                "user_id",
+                "consent_status",
+                "device_info",
+                "ip_address",
+            ]
+            values = [user_id, status, context_data["user_agent"], context_data["client_ip"]]
+
+            for column_name in ["full_name", "email", "country", "city", "region", "timezone", "preferred_language", "consent_notes"]:
+                if column_name in columns:
+                    insert_columns.append(column_name)
+                    if column_name == "full_name":
+                        values.append(context_data["full_name"])
+                    elif column_name == "email":
+                        values.append(context_data["email"])
+                    elif column_name == "country":
+                        values.append(context_data["country"])
+                    elif column_name == "city":
+                        values.append(context_data["city"])
+                    elif column_name == "region":
+                        values.append(context_data["region"])
+                    elif column_name == "timezone":
+                        values.append(context_data["timezone"])
+                    elif column_name == "preferred_language":
+                        values.append(context_data["preferred_language"])
+                    elif column_name == "consent_notes":
+                        values.append(f"Consent {status.lower()} via Hawwa app")
+
+            placeholders = ", ".join(["%s"] * len(insert_columns))
+            sql = f"INSERT INTO app_audit_access_logs ({', '.join(insert_columns)}) VALUES ({placeholders})"
+            cursor.execute(sql, tuple(values))
         conn.close()
         st.toast(f"✅ Audit Log Recorded in MySQL for {user_id}!", icon="💾")
-    except Exception:
-        pass
+    except Exception as exc:
+        st.error(f"Audit logging failed: {exc}")
 
 # ---------------------------------------------------------
 # STEP 1: TERMS & COMPLIANCE GATEKEEPER
