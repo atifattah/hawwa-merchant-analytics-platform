@@ -5,6 +5,7 @@ import uuid
 import datetime
 import urllib.request
 import time
+from urllib.parse import quote_plus
 import pymysql
 import numpy as np
 import pandas as pd
@@ -150,25 +151,66 @@ st.markdown(f"""
 # ---------------------------------------------------------
 # DATABASE ENGINE & AUDIT LOGGER
 # ---------------------------------------------------------
+def _read_setting(names, default="", cast=None):
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and str(value).strip():
+            return cast(value) if cast else str(value)
+
+    try:
+        secrets = st.secrets
+    except Exception:
+        secrets = None
+
+    if secrets:
+        for name in names:
+            if name in secrets and str(secrets[name]).strip():
+                return cast(secrets[name]) if cast else str(secrets[name])
+
+            alt_name = name.lower()
+            if alt_name in secrets and str(secrets[alt_name]).strip():
+                return cast(secrets[alt_name]) if cast else str(secrets[alt_name])
+
+        if "mysql" in secrets and isinstance(secrets["mysql"], dict):
+            mysql_config = secrets["mysql"]
+            for name in names:
+                if name in mysql_config and str(mysql_config[name]).strip():
+                    return cast(mysql_config[name]) if cast else str(mysql_config[name])
+
+    return default
+
+
+def get_db_config():
+    return {
+        "host": _read_setting(["DB_HOST", "host"], "127.0.0.1"),
+        "port": _read_setting(["DB_PORT", "port"], "3306", int),
+        "name": _read_setting(["DB_NAME", "database", "dbname"], "hawwa_analytics_platform"),
+        "user": _read_setting(["DB_USER", "user"], "root"),
+        "password": _read_setting(["DB_PASSWORD", "password"], ""),
+    }
+
+
 @st.cache_resource
 def get_db_engine():
-    DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-    DB_PORT = os.getenv("DB_PORT", "3306")
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    DB_NAME = os.getenv("DB_NAME", "hawwa_analytics_platform")
-    return create_engine(f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+    config = get_db_config()
+    encoded_user = quote_plus(str(config["user"]))
+    encoded_password = quote_plus(str(config["password"]))
+    return create_engine(
+        f"mysql+pymysql://{encoded_user}:{encoded_password}@{config['host']}:{config['port']}/{config['name']}"
+    )
+
 
 def ensure_audit_table_schema():
-    DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-    DB_PORT = int(os.getenv("DB_PORT", "3306"))
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    DB_NAME = os.getenv("DB_NAME", "hawwa_analytics_platform")
+    config = get_db_config()
 
     try:
         conn = pymysql.connect(
-            host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, database=DB_NAME, autocommit=True
+            host=config["host"],
+            port=config["port"],
+            user=config["user"],
+            password=config["password"],
+            database=config["name"],
+            autocommit=True,
         )
         with conn.cursor() as cursor:
             cursor.execute("""
@@ -290,20 +332,16 @@ def log_audit_consent(status: str):
     user_id = st.session_state.get("user_id", f"HW-{uuid.uuid4().hex[:8].upper()}")
     context_data = get_client_context()
 
-    DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-    DB_PORT = int(os.getenv("DB_PORT", "3306"))
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    DB_NAME = os.getenv("DB_NAME", "hawwa_analytics_platform")
+    config = get_db_config()
 
     try:
         ensure_audit_table_schema()
         conn = pymysql.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME,
+            host=config["host"],
+            port=config["port"],
+            user=config["user"],
+            password=config["password"],
+            database=config["name"],
             autocommit=True,
             connect_timeout=10,
         )
@@ -344,7 +382,9 @@ def log_audit_consent(status: str):
         conn.close()
         st.toast(f"✅ Audit Log Recorded in MySQL for {user_id}!", icon="💾")
     except Exception as exc:
-        st.error(f"Audit logging failed: {exc}")
+        st.error(
+            f"Audit logging failed. Check DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD in the deployment environment or Streamlit secrets. Error: {exc}"
+        )
 
 # ---------------------------------------------------------
 # STEP 1: TERMS & COMPLIANCE GATEKEEPER
